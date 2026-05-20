@@ -21,10 +21,15 @@ BYMA_UNDERLYING_MAP = {
 }
 
 class MarketDataIngestor:
-    def __init__(self, broker_user, broker_pass, supabase_url, supabase_key):
+    def __init__(self, broker_id, broker_dni, broker_user, broker_pass, supabase_url, supabase_key):
         # 1. Inicializar clientes y estructuras
         self.supabase: Client = create_client(supabase_url, supabase_key)
-        self.broker = pyhomebroker.HomeBroker(int(broker_user), password=broker_pass)
+        self.broker_id = int(broker_id)
+        self.broker_dni = broker_dni
+        self.broker_user = broker_user
+        self.broker_pass = broker_pass
+        
+        self.broker = pyhomebroker.HomeBroker(self.broker_id)
         
         self.options_whitelist = []
         self.equity_whitelist = []
@@ -252,8 +257,13 @@ class MarketDataIngestor:
         print("Planificador APScheduler iniciado correctamente.")
 
         # Conexión y suscripciones duales al broker
-        print("Autenticando en pyhomebroker...")
-        self.broker.auth.login()
+        print(f"Autenticando en pyhomebroker (Broker ID: {self.broker_id})...")
+        self.broker.auth.login(
+            dni=self.broker_dni,
+            user=self.broker_user,
+            password=self.broker_pass,
+            raise_exception=True
+        )
         print("Conectando con el WebSocket del broker...")
         self.broker.online.connect()
         
@@ -281,16 +291,21 @@ class MarketDataIngestor:
 if __name__ == '__main__':
     load_dotenv()
 
+    BROKER_ID = os.getenv("BROKER_ID")
+    BROKER_DNI = os.getenv("BROKER_DNI") or os.getenv("BROKER_USER")
     BROKER_USER = os.getenv("BROKER_USER")
     BROKER_PASS = os.getenv("BROKER_PASS")
     SUPABASE_URL = os.getenv("SUPABASE_URL")
     SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-    if not all([BROKER_USER, BROKER_PASS, SUPABASE_URL, SUPABASE_KEY]):
+    if not all([BROKER_ID, BROKER_USER, BROKER_PASS, SUPABASE_URL, SUPABASE_KEY]):
         print("Error: Faltan variables de entorno requeridas en el archivo .env")
+        print("Asegúrate de configurar: BROKER_ID, BROKER_USER, BROKER_PASS, SUPABASE_URL, SUPABASE_KEY")
         exit(1)
 
     ingestor = MarketDataIngestor(
+        broker_id=BROKER_ID,
+        broker_dni=BROKER_DNI,
         broker_user=BROKER_USER,
         broker_pass=BROKER_PASS,
         supabase_url=SUPABASE_URL,
