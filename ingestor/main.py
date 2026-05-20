@@ -291,12 +291,12 @@ class MarketDataIngestor:
 if __name__ == '__main__':
     load_dotenv()
 
-    BROKER_ID = os.getenv("BROKER_ID")
-    BROKER_DNI = os.getenv("BROKER_DNI") or os.getenv("BROKER_USER")
-    BROKER_USER = os.getenv("BROKER_USER")
-    BROKER_PASS = os.getenv("BROKER_PASS")
-    SUPABASE_URL = os.getenv("SUPABASE_URL")
-    SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+    BROKER_ID = (os.getenv("BROKER_ID") or "").strip()
+    BROKER_DNI = (os.getenv("BROKER_DNI") or os.getenv("BROKER_USER") or "").strip()
+    BROKER_USER = (os.getenv("BROKER_USER") or "").strip()
+    BROKER_PASS = (os.getenv("BROKER_PASS") or "").strip()
+    SUPABASE_URL = (os.getenv("SUPABASE_URL") or "").strip()
+    SUPABASE_KEY = (os.getenv("SUPABASE_KEY") or "").strip()
 
     if not all([BROKER_ID, BROKER_USER, BROKER_PASS, SUPABASE_URL, SUPABASE_KEY]):
         print("Error: Faltan variables de entorno requeridas en el archivo .env")
