@@ -8,10 +8,10 @@ from dotenv import load_dotenv
 from supabase import create_client, Client
 from apscheduler.schedulers.background import BackgroundScheduler
 
-# Corrección de URL de Veta Capital (HTTP -> HTTPS) para evitar fallas de redirección en pyhomebroker
+# Corrección de URL de Veta Capital para apuntar a la plataforma real de Matriz OMS (Primary)
 for b in pyhomebroker.common.brokers:
     if b.get('broker_id') == 284:
-        b['page'] = 'https://cuentas.vetacapital.com.ar'
+        b['page'] = 'https://matriz.veta.xoms.com.ar'
 
 # Diccionario lógico de mapeo BYMA (Opciones -> Acciones Subyacentes)
 BYMA_UNDERLYING_MAP = {
