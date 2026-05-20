@@ -1,0 +1,5 @@
+pandas>=2.0.0
+pyhomebroker>=1.0.1
+supabase>=2.4.0
+apscheduler>=3.10.1
+python-dotenv>=1.0.0

@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BYMA Live Analytics - Panel de Control</title>
+    <!-- Fuente Premium -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Iconos -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Estilos Premium -->
+    <link rel="stylesheet" href="index.css">
+    <!-- Supabase JS Client -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- TradingView Lightweight Charts para Gráfico Financiero de Velas -->
+    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+</head>
+<body class="dark-theme">
+    <div class="app-container">
+        <!-- Barra de navegación -->
+        <header class="app-header">
+            <div class="logo">
+                <i class="fa-solid fa-chart-line-up logo-icon"></i>
+                <span class="logo-text">BYMA<span class="highlight">Analytics</span></span>
+                <span class="badge">BACKEND ONLINE</span>
+            </div>
+            <div class="status-indicator">
+                <div class="dot green-pulsing"></div>
+                <span class="status-text">Escuchando WebSockets</span>
+            </div>
+        </header>
+
+        <!-- Contenedor principal -->
+        <main class="main-layout">
+            <!-- Barra lateral: Lista de Tickers -->
+            <aside class="sidebar card">
+                <div class="sidebar-header">
+                    <h3><i class="fa-solid fa-list-check"></i> Activos Habilitados</h3>
+                    <span class="count-badge" id="whitelist-count">0</span>
+                </div>
+                <div class="search-box">
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                    <input type="text" id="ticker-search" placeholder="Filtrar base u opción...">
+                </div>
+                <!-- Lista de opciones y subyacentes -->
+                <div class="ticker-list" id="ticker-list">
+                    <div class="list-placeholder">
+                        <i class="fa-solid fa-circle-notch fa-spin"></i>
+                        <p>Cargando lista blanca...</p>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Sección central del Dashboard -->
+            <section class="dashboard-content">
+                <!-- Resumen de cotización actual -->
+                <div class="ticker-detail-header card" id="selected-ticker-header" style="display: none;">
+                    <div class="ticker-info">
+                        <h1 id="selected-ticker-name">-</h1>
+                        <span class="asset-type-badge" id="selected-ticker-type">-</span>
+                    </div>
+                    <div class="price-metrics">
+                        <div class="metric-item">
+                            <span class="metric-label">Último Precio</span>
+                            <span class="metric-value highlight-price" id="header-last-price">-</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="metric-label">Volumen Acumulado</span>
+                            <span class="metric-value" id="header-volume">-</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="metric-label">Actualizado</span>
+                            <span class="metric-value text-muted" id="header-time">-</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Contenedor de Gráfico y Puntas -->
+                <div class="grid-content">
+                    <!-- Sección del Gráfico -->
+                    <div class="chart-container card">
+                        <div class="chart-header">
+                            <h3><i class="fa-solid fa-chart-candlestick"></i> Evolución de Precios (1m)</h3>
+                            <div class="chart-actions">
+                                <button class="btn btn-sm active">Línea</button>
+                                <button class="btn btn-sm">Velas</button>
+                            </div>
+                        </div>
+                        <div class="chart-viewport" id="chart-viewport">
+                            <div class="viewport-placeholder">
+                                <i class="fa-solid fa-chart-line"></i>
+                                <p>Selecciona un instrumento de la lista para graficar datos de mercado</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Panel de Puntas (Orderbook Simplificado) -->
+                    <div class="orderbook-container card">
+                        <div class="orderbook-header">
+                            <h3><i class="fa-solid fa-arrows-left-right"></i> Bid/Ask Spread</h3>
+                        </div>
+                        <div class="spread-board">
+                            <!-- Punta Compradora -->
+                            <div class="bid-panel">
+                                <span class="panel-title">BID (Compra)</span>
+                                <div class="bid-price-box" id="bid-price">-</div>
+                            </div>
+                            <!-- Separador/Spread -->
+                            <div class="spread-indicator">
+                                <span class="spread-value" id="spread-pct">-%</span>
+                                <span class="spread-label">SPREAD</span>
+                            </div>
+                            <!-- Punta Vendedora -->
+                            <div class="ask-panel">
+                                <span class="panel-title">ASK (Venta)</span>
+                                <div class="ask-price-box" id="ask-price">-</div>
+                            </div>
+                        </div>
+                        
+                        <!-- Mini tabla OHLC adicional -->
+                        <div class="ohlc-subgrid">
+                            <div class="ohlc-box">
+                                <span class="ohlc-label">Apertura</span>
+                                <span class="ohlc-val" id="ohlc-open">-</span>
+                            </div>
+                            <div class="ohlc-box">
+                                <span class="ohlc-label">Máximo</span>
+                                <span class="ohlc-val" id="ohlc-high">-</span>
+                            </div>
+                            <div class="ohlc-box">
+                                <span class="ohlc-label">Mínimo</span>
+                                <span class="ohlc-val" id="ohlc-low">-</span>
+                            </div>
+                            <div class="ohlc-box">
+                                <span class="ohlc-label">Cierre</span>
+                                <span class="ohlc-val" id="ohlc-close">-</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Script de la Aplicación -->
+    <script src="app.js"></script>
+</body>
+</html>
