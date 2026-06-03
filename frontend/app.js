@@ -418,6 +418,7 @@ document.addEventListener("DOMContentLoaded", () => {
     initSupabase();
     loadActiveTickers();
     setupEventListeners();
+    setupFallbackPolling();
 });
 
 // Inicializar cliente Supabase
@@ -816,6 +817,46 @@ function setupRealtimeSubscription() {
             }
         )
         .subscribe();
+}
+
+// Fallback de refresco periódico por polling en caso de que los WebSockets fallen o estén desactivados
+function setupFallbackPolling() {
+    setInterval(async () => {
+        console.log("Sincronizando monitor de mercado con Supabase...");
+        await loadMarketMonitorData();
+        if (currentTicker && currentTicker.id) {
+            // Refrescar el histórico y detalles si hay un activo seleccionado
+            try {
+                const { data, error } = await supabaseClient
+                    .from('market_data_1m')
+                    .select('*')
+                    .eq('instrument_id', currentTicker.id)
+                    .order('timestamp', { ascending: false })
+                    .limit(50);
+
+                if (!error && data && data.length > 0) {
+                    const tableBody = document.getElementById("data-table-body");
+                    // Guardar posición de scroll actual del contenedor para evitar saltos molestos al usuario
+                    const scrollPos = tableBody.parentElement ? tableBody.parentElement.scrollTop : 0;
+                    
+                    tableBody.innerHTML = "";
+                    data.forEach(row => {
+                        const tr = createTableRow(row);
+                        tableBody.appendChild(tr);
+                    });
+                    
+                    if (tableBody.parentElement) {
+                        tableBody.parentElement.scrollTop = scrollPos;
+                    }
+                    
+                    // Actualizar los paneles de la derecha e inferior con el registro más reciente
+                    updateDetailPanels(data[0]);
+                }
+            } catch (err) {
+                console.error("Error en polling histórico:", err);
+            }
+        }
+    }, 10000); // Sincroniza cada 10 segundos
 }
 
 // Helper para actualizar paneles de precios e información
