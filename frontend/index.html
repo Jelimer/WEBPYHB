@@ -11,11 +11,9 @@
     <!-- Iconos -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- Estilos Premium -->
-    <link rel="stylesheet" href="index.css">
+    <link rel="stylesheet" href="index.css?v=2.3">
     <!-- Supabase JS Client -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <!-- TradingView Lightweight Charts para Gráfico Financiero de Velas -->
-    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body class="dark-theme">
     <div class="app-container">
@@ -31,11 +29,105 @@
                 <span class="status-text">Escuchando WebSockets</span>
             </div>
         </header>
+        <!-- Selector de Pestañas (Tabs) -->
+        <div class="app-tabs">
+            <button class="tab-btn active" data-tab="tab-mercado"><i class="fa-solid fa-table-cells"></i> Monitor de Mercado</button>
+            <button class="tab-btn" data-tab="tab-analisis"><i class="fa-solid fa-diagram-project"></i> Red de Activos</button>
+        </div>
 
         <!-- Contenedor principal -->
         <main class="main-layout">
-            <!-- Barra lateral: Lista de Tickers -->
-            <aside class="sidebar card">
+            <!-- Pestaña 1: Monitor de Mercado -->
+            <div id="tab-mercado" class="tab-pane active" style="width: 100%; display: flex; flex-direction: column; gap: 16px;">
+                <div class="market-overview-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(450px, 1fr)); gap: 16px; flex: 1;">
+                    <!-- Tabla de Acciones Subyacentes -->
+                    <div class="card market-table-card" style="flex: 1; display: flex; flex-direction: column;">
+                        <div class="card-header-premium" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                            <h3 style="font-size: 16px; font-weight: 600;"><i class="fa-solid fa-cubes" style="color: var(--color-accent); margin-right: 6px;"></i> Acciones Subyacentes (Líderes)</h3>
+                            <span id="subyacentes-order-label" class="text-muted" style="font-size: 11px;">Ordenado por Vol. Nom. (Desc)</span>
+                        </div>
+                        
+                        <!-- Controles de Filtros y Búsqueda -->
+                        <div class="table-controls" style="display: flex; gap: 12px; margin-bottom: 12px; align-items: center; flex-wrap: wrap;">
+                            <div class="search-box" style="flex: 1; min-width: 150px;">
+                                <i class="fa-solid fa-magnifying-glass"></i>
+                                <input type="text" id="subyacentes-search" placeholder="Buscar activo...">
+                            </div>
+                            <div class="slider-box" style="display: flex; align-items: center; gap: 8px; flex: 1.2; min-width: 180px; background: rgba(0, 0, 0, 0.2); padding: 8px 12px; border: 1px solid var(--border-color); border-radius: var(--border-radius-md);">
+                                <span style="font-size: 11px; color: var(--color-text-secondary); white-space: nowrap;"><i class="fa-solid fa-filter" style="margin-right: 4px;"></i>Vol. Mín:</span>
+                                <input type="range" id="subyacentes-vol-slider" min="0" max="100" value="0" style="flex: 1; accent-color: var(--color-accent); cursor: pointer;">
+                                <span id="subyacentes-vol-label" style="font-size: 11px; color: var(--color-accent); font-weight: 600; width: 60px; text-align: right;">0</span>
+                            </div>
+                        </div>
+
+                        <div class="table-viewport" style="flex: 1; overflow-y: auto; background: rgba(0, 0, 0, 0.15); border: 1px solid var(--border-color); border-radius: var(--border-radius-md);">
+                            <table class="market-summary-table" style="width: 100%; border-collapse: collapse; text-align: left; font-size: 13px;">
+                                <thead style="background: rgba(0, 0, 0, 0.4); position: sticky; top: 0; z-index: 10; border-bottom: 1px solid var(--border-color);">
+                                    <tr>
+                                        <th class="sortable-header" id="th-subyacente-ticker" style="padding: 12px; color: var(--color-text-secondary); font-weight: 600; cursor: pointer; user-select: none;">Activo <i class="fa-solid fa-sort sort-icon" id="sort-icon-subyacente-ticker"></i></th>
+                                        <th class="sortable-header" id="th-subyacente-vol" style="padding: 12px; color: var(--color-text-secondary); font-weight: 600; text-align: right; cursor: pointer; user-select: none;">Vol. Nom. <i class="fa-solid fa-sort-down sort-icon" id="sort-icon-subyacente-vol" style="color: var(--color-accent);"></i></th>
+                                        <th class="sortable-header" id="th-subyacente-var" style="padding: 12px; color: var(--color-text-secondary); font-weight: 600; text-align: right; cursor: pointer; user-select: none;">Var. % <i class="fa-solid fa-sort sort-icon" id="sort-icon-subyacente-var"></i></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="subyacentes-market-body">
+                                    <tr>
+                                        <td colspan="3" style="padding: 30px; text-align: center; color: var(--color-text-muted);">
+                                            <i class="fa-solid fa-circle-notch fa-spin" style="font-size: 20px; margin-bottom: 10px; display: block; color: var(--color-accent);"></i>
+                                            Cargando monitor de mercado...
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Tabla de Opciones -->
+                    <div class="card market-table-card" style="flex: 1; display: flex; flex-direction: column;">
+                        <div class="card-header-premium" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                            <h3 style="font-size: 16px; font-weight: 600;"><i class="fa-solid fa-signature" style="color: var(--color-accent); margin-right: 6px;"></i> Opciones Financieras (Bases BYMA)</h3>
+                            <span id="opciones-order-label" class="text-muted" style="font-size: 11px;">Ordenado por Vol. Nom. (Desc)</span>
+                        </div>
+
+                        <!-- Controles de Filtros y Búsqueda -->
+                        <div class="table-controls" style="display: flex; gap: 12px; margin-bottom: 12px; align-items: center; flex-wrap: wrap;">
+                            <div class="search-box" style="flex: 1; min-width: 150px;">
+                                <i class="fa-solid fa-magnifying-glass"></i>
+                                <input type="text" id="opciones-search" placeholder="Buscar opción...">
+                            </div>
+                            <div class="slider-box" style="display: flex; align-items: center; gap: 8px; flex: 1.2; min-width: 180px; background: rgba(0, 0, 0, 0.2); padding: 8px 12px; border: 1px solid var(--border-color); border-radius: var(--border-radius-md);">
+                                <span style="font-size: 11px; color: var(--color-text-secondary); white-space: nowrap;"><i class="fa-solid fa-filter" style="margin-right: 4px;"></i>Vol. Mín:</span>
+                                <input type="range" id="opciones-vol-slider" min="0" max="100" value="0" style="flex: 1; accent-color: var(--color-accent); cursor: pointer;">
+                                <span id="opciones-vol-label" style="font-size: 11px; color: var(--color-accent); font-weight: 600; width: 60px; text-align: right;">0</span>
+                            </div>
+                        </div>
+
+                        <div class="table-viewport" style="flex: 1; overflow-y: auto; background: rgba(0, 0, 0, 0.15); border: 1px solid var(--border-color); border-radius: var(--border-radius-md);">
+                            <table class="market-summary-table" style="width: 100%; border-collapse: collapse; text-align: left; font-size: 13px;">
+                                <thead style="background: rgba(0, 0, 0, 0.4); position: sticky; top: 0; z-index: 10; border-bottom: 1px solid var(--border-color);">
+                                    <tr>
+                                        <th class="sortable-header" id="th-opcion-ticker" style="padding: 12px; color: var(--color-text-secondary); font-weight: 600; cursor: pointer; user-select: none;">Opción <i class="fa-solid fa-sort sort-icon" id="sort-icon-opcion-ticker"></i></th>
+                                        <th class="sortable-header" id="th-opcion-vol" style="padding: 12px; color: var(--color-text-secondary); font-weight: 600; text-align: right; cursor: pointer; user-select: none;">Vol. Nom. <i class="fa-solid fa-sort-down sort-icon" id="sort-icon-opcion-vol" style="color: var(--color-accent);"></i></th>
+                                        <th class="sortable-header" id="th-opcion-var" style="padding: 12px; color: var(--color-text-secondary); font-weight: 600; text-align: right; cursor: pointer; user-select: none;">Var. % <i class="fa-solid fa-sort sort-icon" id="sort-icon-opcion-var"></i></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="opciones-market-body">
+                                    <tr>
+                                        <td colspan="3" style="padding: 30px; text-align: center; color: var(--color-text-muted);">
+                                            <i class="fa-solid fa-circle-notch fa-spin" style="font-size: 20px; margin-bottom: 10px; display: block; color: var(--color-accent);"></i>
+                                            Cargando monitor de mercado...
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Pestaña 2: Red de Activos (Detalle) -->
+            <div id="tab-analisis" class="tab-pane" style="display: none; width: 100%; gap: 16px;">
+                <!-- Barra lateral: Lista de Tickers -->
+                <aside class="sidebar card">
                 <div class="sidebar-header">
                     <h3><i class="fa-solid fa-list-check"></i> Activos Habilitados</h3>
                     <span class="count-badge" id="whitelist-count">0</span>
@@ -77,22 +169,81 @@
                     </div>
                 </div>
 
-                <!-- Contenedor de Gráfico y Puntas -->
-                <div class="grid-content">
-                    <!-- Sección del Gráfico -->
-                    <div class="chart-container card">
-                        <div class="chart-header">
-                            <h3><i class="fa-solid fa-chart-candlestick"></i> Evolución de Precios (1m)</h3>
-                            <div class="chart-actions">
-                                <button class="btn btn-sm active">Línea</button>
-                                <button class="btn btn-sm">Velas</button>
-                            </div>
+                <!-- Tablero de Red Interactivo (Diseño de Red de Activos) -->
+                <div class="tablero-red-container card">
+                    <div class="tablero-red-title" style="margin-bottom: 15px; font-size: 13px; font-weight: 600; color: var(--color-text-secondary); display: flex; align-items: center; gap: 8px;">
+                        <i class="fa-solid fa-circle-nodes" style="color: var(--color-accent);"></i> Red de Cotizaciones BYMA (Subyacentes)
+                    </div>
+                    <div class="tablero-red">
+                        <!-- SVG para líneas conectoras -->
+                        <div class="tablero-red-lines">
+                            <svg style="width: 100%; height: 100%;">
+                                <line x1="16.67%" y1="16.67%" x2="50%" y2="50%" class="node-cruce" id="line-1"/>
+                                <line x1="83.33%" y1="16.67%" x2="50%" y2="50%" class="node-cruce" id="line-10"/>
+                                <line x1="16.67%" y1="83.33%" x2="50%" y2="50%" class="node-cruce" id="line-2"/>
+                                <line x1="83.33%" y1="83.33%" x2="50%" y2="50%" class="node-cruce" id="line-11"/>
+                            </svg>
                         </div>
-                        <div class="chart-viewport" id="chart-viewport">
-                            <div class="viewport-placeholder">
-                                <i class="fa-solid fa-chart-line"></i>
-                                <p>Selecciona un instrumento de la lista para graficar datos de mercado</p>
-                            </div>
+                        
+                        <!-- Nodos -->
+                        <div class="nodo-red pos-ggal" id="node-1" data-id="1" data-ticker="GGAL">
+                            <span class="nodo-ticker">GGAL</span>
+                            <span class="nodo-precio" id="node-price-1">$-</span>
+                            <span class="nodo-label">Galicia</span>
+                        </div>
+                        <div class="nodo-red pos-ypfd" id="node-10" data-id="10" data-ticker="YPFD">
+                            <span class="nodo-ticker">YPFD</span>
+                            <span class="nodo-precio" id="node-price-10">$-</span>
+                            <span class="nodo-label">YPF</span>
+                        </div>
+                        <div class="nodo-red pos-centro" id="node-central">
+                            <span class="nodo-label" style="font-size: 7px; margin-bottom: 2px;">SELECCIONADO</span>
+                            <span class="nodo-ticker" id="central-ticker" style="color: var(--color-accent); font-weight: 800; font-size: 14px;">-</span>
+                            <span class="nodo-precio" id="central-price" style="font-size: 13px; font-weight: 700;">$-</span>
+                        </div>
+                        <div class="nodo-red pos-pamp" id="node-2" data-id="2" data-ticker="PAMP">
+                            <span class="nodo-ticker">PAMP</span>
+                            <span class="nodo-precio" id="node-price-2">$-</span>
+                            <span class="nodo-label">Pampa</span>
+                        </div>
+                        <div class="nodo-red pos-metr" id="node-11" data-id="11" data-ticker="METR">
+                            <span class="nodo-ticker">METR</span>
+                            <span class="nodo-precio" id="node-price-11">$-</span>
+                            <span class="nodo-label">MetroGas</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Contenedor de Tabla de Datos y Puntas -->
+                <div class="grid-content">
+                    <!-- Sección de Tabla de Datos -->
+                    <div class="data-table-container card" style="flex: 2.5;">
+                        <div class="data-table-header">
+                            <h3><i class="fa-solid fa-table-list"></i> Historial de Registros por Minuto (Supabase)</h3>
+                        </div>
+                        <div class="table-viewport" style="flex: 1; overflow-y: auto; background: rgba(0, 0, 0, 0.15); border: 1px solid var(--border-color); border-radius: var(--border-radius-md);">
+                            <table class="data-table" style="width: 100%; border-collapse: collapse; text-align: left; font-size: 13px;">
+                                <thead style="background: rgba(0, 0, 0, 0.4); position: sticky; top: 0; z-index: 10; border-bottom: 1px solid var(--border-color);">
+                                    <tr>
+                                        <th style="padding: 12px; color: var(--color-text-secondary); font-weight: 600;">Hora (Minuto)</th>
+                                        <th style="padding: 12px; color: var(--color-text-secondary); font-weight: 600; text-align: right;">Cierre</th>
+                                        <th style="padding: 12px; color: var(--color-text-secondary); font-weight: 600; text-align: right;">Vol. Día</th>
+                                        <th style="padding: 12px; color: var(--color-text-secondary); font-weight: 600; text-align: right;">Bid (Cant)</th>
+                                        <th style="padding: 12px; color: var(--color-text-secondary); font-weight: 600; text-align: right;">Ask (Cant)</th>
+                                        <th style="padding: 12px; color: var(--color-text-secondary); font-weight: 600; text-align: right;">Ops</th>
+                                        <th style="padding: 12px; color: var(--color-text-secondary); font-weight: 600; text-align: right;">Monto Rueda ($)</th>
+                                        <th style="padding: 12px; color: var(--color-text-secondary); font-weight: 600; text-align: right;">Int. Abierto</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="data-table-body">
+                                    <tr id="table-placeholder">
+                                        <td colspan="8" style="padding: 40px; text-align: center; color: var(--color-text-muted);">
+                                            <i class="fa-solid fa-database" style="font-size: 24px; margin-bottom: 10px; display: block; color: var(--border-color);"></i>
+                                            Selecciona un instrumento para ver sus datos
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
                         </div>
                     </div>
 
@@ -138,13 +289,54 @@
                                 <span class="ohlc-val" id="ohlc-close">-</span>
                             </div>
                         </div>
+                        
+                        <!-- Métricas Avanzadas de pyRofex -->
+                        <div class="advanced-metrics-header" style="margin-top: 15px; margin-bottom: 8px;">
+                            <h4 style="font-size: 13px; font-weight: 600; color: var(--color-text-secondary); display: flex; align-items: center; gap: 6px;">
+                                <i class="fa-solid fa-chart-simple" style="color: var(--color-accent);"></i> Datos Rofex en Tiempo Real
+                            </h4>
+                        </div>
+                        <div class="ohlc-subgrid">
+                            <div class="ohlc-box">
+                                <span class="ohlc-label">Cant. Bid</span>
+                                <span class="ohlc-val highlight" style="color: var(--color-bid);" id="rofex-bid-size">-</span>
+                            </div>
+                            <div class="ohlc-box">
+                                <span class="ohlc-label">Cant. Ask</span>
+                                <span class="ohlc-val highlight" style="color: var(--color-ask);" id="rofex-ask-size">-</span>
+                            </div>
+                            <div class="ohlc-box">
+                                <span class="ohlc-label">Últ. Op (Cant)</span>
+                                <span class="ohlc-val" id="rofex-last-size">-</span>
+                            </div>
+                            <div class="ohlc-box">
+                                <span class="ohlc-label">Operaciones</span>
+                                <span class="ohlc-val" id="rofex-operations">-</span>
+                            </div>
+                            <div class="ohlc-box" style="grid-column: span 2; display: flex; flex-direction: row; justify-content: space-between; align-items: center;">
+                                <span class="ohlc-label">Monto Rueda ($)</span>
+                                <span class="ohlc-val text-accent" style="color: var(--color-accent);" id="rofex-turnover">-</span>
+                            </div>
+                            <div class="ohlc-box" style="grid-column: span 2; display: flex; flex-direction: row; justify-content: space-between; align-items: center;">
+                                <span class="ohlc-label">Interés Abierto</span>
+                                <span class="ohlc-val" id="rofex-open-interest">-</span>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </section>
+            </div>
         </main>
+
+        <!-- Ticker Tape Corredizo Wall Street -->
+        <div class="ticker-tape-container">
+            <div class="ticker-tape" id="ticker-tape-scroll">
+                <div style="color: var(--color-text-muted); font-size: 11px; padding: 4px;">Cargando cotizaciones en vivo...</div>
+            </div>
+        </div>
     </div>
 
     <!-- Script de la Aplicación -->
-    <script src="app.js"></script>
+    <script src="app.js?v=2.3"></script>
 </body>
 </html>

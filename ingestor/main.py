@@ -3,15 +3,10 @@ import time
 import threading
 from datetime import datetime, timezone
 import pandas as pd
-import pyhomebroker
+import pyRofex
 from dotenv import load_dotenv
 from supabase import create_client, Client
 from apscheduler.schedulers.background import BackgroundScheduler
-
-# Corrección de URL de Veta Capital para apuntar a la plataforma real de Matriz OMS (Primary)
-for b in pyhomebroker.common.brokers:
-    if b.get('broker_id') == 284:
-        b['page'] = 'https://matriz.veta.xoms.com.ar'
 
 # Diccionario lógico de mapeo BYMA (Opciones -> Acciones Subyacentes)
 BYMA_UNDERLYING_MAP = {
@@ -22,19 +17,17 @@ BYMA_UNDERLYING_MAP = {
     "TXA": "TXAR",  # Ternium Argentina
     "BMA": "BMA",   # Banco Macro
     "CEC": "CECO2", # Central Puerto
-    "COM": "COME"   # Sociedad Comercial del Plata
+    "COM": "COME",  # Sociedad Comercial del Plata
+    "MET": "METR"   # MetroGAS S.A.
 }
 
 class MarketDataIngestor:
-    def __init__(self, broker_id, broker_dni, broker_user, broker_pass, supabase_url, supabase_key):
+    def __init__(self, broker_user, broker_pass, broker_account, supabase_url, supabase_key):
         # 1. Inicializar clientes y estructuras
         self.supabase: Client = create_client(supabase_url, supabase_key)
-        self.broker_id = int(broker_id)
-        self.broker_dni = broker_dni
         self.broker_user = broker_user
         self.broker_pass = broker_pass
-        
-        self.broker = pyhomebroker.HomeBroker(self.broker_id)
+        self.broker_account = broker_account
         
         self.options_whitelist = []
         self.equity_whitelist = []
@@ -73,9 +66,13 @@ class MarketDataIngestor:
                 if not ticker or not instrument_id:
                     continue
                 
-                # Registramos el ID de la opción
+                # Registramos en el mapeo general de IDs
                 self.ticker_to_id[ticker] = instrument_id
-                opciones_activas.append(ticker)
+                
+                if inst_type == 'OPTION':
+                    opciones_activas.append(ticker)
+                else:
+                    subyacentes_necesarios.add(ticker)
                 
                 # Intentar resolver el subyacente
                 if underlying_id is None:
@@ -138,82 +135,101 @@ class MarketDataIngestor:
             print(f"Error al cargar la lista blanca desde Supabase: {str(e)}")
             raise e
 
-    def on_options_update(self, online, quotes):
-        # Callback para opciones financieras
-        self._process_tick_data(quotes)
-
-    def on_equity_update(self, online, quotes):
-        # Callback para acciones (subyacentes)
-        self._process_tick_data(quotes)
-
-    def _process_tick_data(self, quotes):
-        # 3. Procesamiento y unificación de ticks en el buffer temporal
-        if quotes is None:
-            return
-
-        now_utc = datetime.now(timezone.utc)
-        minute_key = now_utc.replace(second=0, microsecond=0)
-
-        # Cachear referencias locales para optimizar velocidad (Hot Path)
-        local_buffer = self.buffer_1m
-        whitelist = self.whitelist_set
-        local_max = max
-        local_min = min
-
-        items_to_process = []
-        
-        # Normalización del iterable de entrada
-        if isinstance(quotes, pd.DataFrame):
-            for idx, row in quotes.iterrows():
-                ticker = row.get('symbol') or row.get('ticker') or idx
-                items_to_process.append((ticker, row))
-        elif isinstance(quotes, dict):
-            items_to_process = quotes.items()
-        else:
-            try:
-                items_to_process = [(item.get('symbol') or item.get('ticker'), item) for item in quotes]
-            except Exception:
+    def on_market_data(self, message):
+        # Callback para procesamiento de ticks del WebSocket en tiempo real de pyRofex
+        try:
+            symbol = message.get('instrumentId', {}).get('symbol')
+            if not symbol:
                 return
 
-        # Procesar los ticks uno por uno
-        for ticker, data in items_to_process:
-            if not ticker or ticker not in whitelist:
-                continue
+            # Limpiamos el prefijo de Matba Rofex "MERV - XMEV - " y sufijos de plazo " - 24hs" o " - CI"
+            clean_symbol = symbol.replace("MERV - XMEV - ", "")
+            if clean_symbol.endswith(" - 24hs"):
+                clean_symbol = clean_symbol[:-7]
+            elif clean_symbol.endswith(" - CI"):
+                clean_symbol = clean_symbol[:-5]
 
-            try:
-                last = data.get('last') if hasattr(data, 'get') else getattr(data, 'last', None)
-                volume = data.get('volume') if hasattr(data, 'get') else getattr(data, 'volume', 0)
-                bid = data.get('bid') if hasattr(data, 'get') else getattr(data, 'bid', None)
-                ask = data.get('ask') if hasattr(data, 'get') else getattr(data, 'ask', None)
-                
-                if last is None or pd.isna(last):
-                    continue
+            # Verificar si está en la whitelist activa
+            if clean_symbol not in self.whitelist_set:
+                return
 
-                buffer_key = (ticker, minute_key)
+            market_data = message.get('marketData', {})
+            if not market_data:
+                return
 
-                # Escritura protegida por Lock (Thread-Safe)
-                with self.lock:
-                    if buffer_key not in local_buffer:
-                        local_buffer[buffer_key] = {
-                            'open_price': last,
-                            'high_price': last,
-                            'low_price': last,
-                            'close_price': last,
-                            'accumulated_volume': volume,
-                            'bid_price': bid,
-                            'ask_price': ask
-                        }
-                    else:
-                        record = local_buffer[buffer_key]
-                        record['high_price'] = local_max(record['high_price'], last)
-                        record['low_price'] = local_min(record['low_price'], last)
-                        record['close_price'] = last
-                        record['accumulated_volume'] = volume
-                        record['bid_price'] = bid
-                        record['ask_price'] = ask
+            # 1. Extracción del precio y volumen del último trade
+            last_trade = market_data.get('LA', {})
+            last = last_trade.get('price') if isinstance(last_trade, dict) else None
+            last_size = last_trade.get('size') if isinstance(last_trade, dict) else None
+            
+            # Si no hay trade price, no podemos conformar la vela
+            if last is None or pd.isna(last):
+                return
 
-            except Exception as e:
-                print(f"Error al procesar tick para {ticker}: {str(e)}")
+            # 2. Extracción del volumen nominal acumulado del día (NV)
+            volume = market_data.get('NV', 0)
+
+            # 3. Extracción de bid/ask (precios y cantidades en la mejor oferta)
+            bids = market_data.get('BI', [])
+            bid = bids[0].get('price') if bids and isinstance(bids, list) else None
+            bid_size = bids[0].get('size') if bids and isinstance(bids, list) else None
+
+            offers = market_data.get('OF', [])
+            ask = offers[0].get('price') if offers and isinstance(offers, list) else None
+            ask_size = offers[0].get('size') if offers and isinstance(offers, list) else None
+
+            # 4. Extracción de estadísticas adicionales de la rueda (operaciones, turnover, interés abierto)
+            operations = market_data.get('TC', 0)     # Trade Count acumulado del día
+            turnover = market_data.get('EV', 0.0)    # Effective Volume acumulado del día
+            
+            oi_data = market_data.get('OI')          # Open Interest
+            open_interest = oi_data.get('price') if isinstance(oi_data, dict) else oi_data
+
+            now_utc = datetime.now(timezone.utc)
+            minute_key = now_utc.replace(second=0, microsecond=0)
+
+            # Escritura Thread-Safe en el buffer de agregación
+            with self.lock:
+                buffer_key = (clean_symbol, minute_key)
+                if buffer_key not in self.buffer_1m:
+                    self.buffer_1m[buffer_key] = {
+                        'open_price': last,
+                        'high_price': last,
+                        'low_price': last,
+                        'close_price': last,
+                        'accumulated_volume': volume,
+                        'bid_price': bid,
+                        'ask_price': ask,
+                        'bid_size': bid_size,
+                        'ask_size': ask_size,
+                        'last_size': last_size,
+                        'operations': operations,
+                        'turnover': turnover,
+                        'open_interest': open_interest
+                    }
+                else:
+                    record = self.buffer_1m[buffer_key]
+                    record['high_price'] = max(record['high_price'], last)
+                    record['low_price'] = min(record['low_price'], last)
+                    record['close_price'] = last
+                    record['accumulated_volume'] = volume
+                    record['bid_price'] = bid
+                    record['ask_price'] = ask
+                    record['bid_size'] = bid_size
+                    record['ask_size'] = ask_size
+                    record['last_size'] = last_size
+                    record['operations'] = operations
+                    record['turnover'] = turnover
+                    record['open_interest'] = open_interest
+
+        except Exception as e:
+            print(f"Error al procesar tick para el símbolo {symbol if 'symbol' in locals() else 'desconocido'}: {str(e)}")
+
+    def on_websocket_error(self, message):
+        print(f"ALERTA: Error en conexión WebSocket de pyRofex: {message}")
+
+    def on_websocket_exception(self, exception):
+        print(f"EXCEPCIÓN: Error interno en el WebSocket de pyRofex: {exception}")
 
     def flush_to_database(self):
         # 4. Cron: Swap de buffers e inserción por lotes en Supabase
@@ -241,7 +257,13 @@ class MarketDataIngestor:
                 "close_price": float(metricas["close_price"]),
                 "volume": int(metricas["accumulated_volume"]),
                 "bid_price": float(metricas["bid_price"]) if metricas["bid_price"] is not None else None,
-                "ask_price": float(metricas["ask_price"]) if metricas["ask_price"] is not None else None
+                "ask_price": float(metricas["ask_price"]) if metricas["ask_price"] is not None else None,
+                "bid_size": int(metricas["bid_size"]) if metricas["bid_size"] is not None else None,
+                "ask_size": int(metricas["ask_size"]) if metricas["ask_size"] is not None else None,
+                "last_size": int(metricas["last_size"]) if metricas["last_size"] is not None else None,
+                "operations": int(metricas["operations"]) if metricas["operations"] is not None else None,
+                "turnover": float(metricas["turnover"]) if metricas["turnover"] is not None else None,
+                "open_interest": int(metricas["open_interest"]) if metricas["open_interest"] is not None else None
             }
             registros_a_insertar.append(registro)
 
@@ -261,58 +283,104 @@ class MarketDataIngestor:
         scheduler.start()
         print("Planificador APScheduler iniciado correctamente.")
 
-        # Conexión y suscripciones duales al broker
-        print(f"Autenticando en pyhomebroker (Broker ID: {self.broker_id})...")
-        self.broker.auth.login(
-            dni=self.broker_dni,
-            user=self.broker_user,
-            password=self.broker_pass,
-            raise_exception=True
-        )
-        print("Conectando con el WebSocket del broker...")
-        self.broker.online.connect()
-        
-        # 1. Suscripción a Opciones Financieras
-        if self.options_whitelist:
-            print(f"Suscribiendo a {len(self.options_whitelist)} opciones en tiempo real...")
-            self.broker.online.subscribe_options(self.options_whitelist, self.on_options_update)
+        # Conexión e inicio de sesión con pyRofex en Veta Capital
+        print("Inicializando pyRofex con API Veta Capital...")
+        try:
+            # Configurar endpoints de Veta Capital en el entorno LIVE
+            pyRofex._set_environment_parameter('url', "https://api.veta.xoms.com.ar/", pyRofex.Environment.LIVE)
+            pyRofex._set_environment_parameter('ws', "wss://api.veta.xoms.com.ar/", pyRofex.Environment.LIVE)
             
-        # 2. Suscripción a Acciones Subyacentes
-        if self.equity_whitelist:
-            print(f"Suscribiendo a {len(self.equity_whitelist)} subyacentes líderes en tiempo real...")
-            self.broker.online.subscribe_equity(self.equity_whitelist, self.on_equity_update)
+            pyRofex.initialize(
+                environment=pyRofex.Environment.LIVE,
+                user=self.broker_user,
+                password=self.broker_pass,
+                account=self.broker_account
+            )
+            print("Autenticación con la API de Veta Capital exitosa.")
+        except Exception as e:
+            print(f"ERROR CRÍTICO: Fallo al inicializar pyRofex: {str(e)}")
+            scheduler.shutdown()
+            raise e
+
+        # Inicialización de la conexión WebSocket
+        print("Conectando al WebSocket de datos de mercado en tiempo real...")
+        try:
+            pyRofex.init_websocket_connection(
+                market_data_handler=self.on_market_data,
+                error_handler=self.on_websocket_error,
+                exception_handler=self.on_websocket_exception
+            )
+            print("Conexión WebSocket establecida.")
+        except Exception as e:
+            print(f"ERROR CRÍTICO: No se pudo establecer la conexión WebSocket: {str(e)}")
+            scheduler.shutdown()
+            raise e
+        
+        # Suscribir a los instrumentos de la Whitelist formateados a Rofex
+        rofex_symbols = []
+        for ticker in self.whitelist:
+            if ticker in self.options_whitelist:
+                # Opciones en BYMA se operan en Contado Inmediato (CI) en Matba Rofex
+                rofex_symbol = f"MERV - XMEV - {ticker} - CI"
+            else:
+                # Acciones líderes sí se negocian en plazo 24hs por defecto
+                rofex_symbol = f"MERV - XMEV - {ticker} - 24hs"
+            rofex_symbols.append(rofex_symbol)
+            
+        if rofex_symbols:
+            print(f"Suscribiendo a {len(rofex_symbols)} símbolos en Matba Rofex: {rofex_symbols}...")
+            entries = [
+                pyRofex.MarketDataEntry.BIDS,
+                pyRofex.MarketDataEntry.OFFERS,
+                pyRofex.MarketDataEntry.LAST,
+                pyRofex.MarketDataEntry.OPENING_PRICE,
+                pyRofex.MarketDataEntry.CLOSING_PRICE,
+                pyRofex.MarketDataEntry.HIGH_PRICE,
+                pyRofex.MarketDataEntry.LOW_PRICE,
+                pyRofex.MarketDataEntry.NOMINAL_VOLUME,
+                pyRofex.MarketDataEntry.TRADE_COUNT,
+                pyRofex.MarketDataEntry.TRADE_EFFECTIVE_VOLUME,
+                pyRofex.MarketDataEntry.OPEN_INTEREST
+            ]
+            try:
+                pyRofex.market_data_subscription(tickers=rofex_symbols, entries=entries)
+                print("Suscripción de datos de mercado completada con éxito.")
+            except Exception as sub_err:
+                print(f"ERROR al enviar la suscripción de tickers: {str(sub_err)}")
         
         # Mantener el daemon vivo 24/5
-        print("Servicio de ingesta dual en ejecución. Presione Ctrl+C para detener.")
+        print("Servicio de ingesta en tiempo real (pyRofex) en ejecución. Presione Ctrl+C para detener.")
         try:
             while True:
                 time.sleep(1)
         except KeyboardInterrupt:
-            print("Deteniendo servicio de ingesta...")
-            self.broker.online.disconnect()
+            print("Deteniendo servicio de ingesta dual...")
+            try:
+                pyRofex.close_websocket_connection()
+            except Exception:
+                pass
             scheduler.shutdown()
-            print("Servicio detenido exitosamente.")
+            print("Servicio de ingesta detenido con éxito.")
 
 if __name__ == '__main__':
     load_dotenv()
 
-    BROKER_ID = (os.getenv("BROKER_ID") or "").strip()
-    BROKER_DNI = (os.getenv("BROKER_DNI") or os.getenv("BROKER_USER") or "").strip()
+    # Mapeo de credenciales locales a variables de pyRofex
     BROKER_USER = (os.getenv("BROKER_USER") or "").strip()
     BROKER_PASS = (os.getenv("BROKER_PASS") or "").strip()
+    BROKER_ACCOUNT = (os.getenv("BROKER_ACCOUNT") or "").strip()
     SUPABASE_URL = (os.getenv("SUPABASE_URL") or "").strip()
     SUPABASE_KEY = (os.getenv("SUPABASE_KEY") or "").strip()
 
-    if not all([BROKER_ID, BROKER_USER, BROKER_PASS, SUPABASE_URL, SUPABASE_KEY]):
+    if not all([BROKER_USER, BROKER_PASS, BROKER_ACCOUNT, SUPABASE_URL, SUPABASE_KEY]):
         print("Error: Faltan variables de entorno requeridas en el archivo .env")
-        print("Asegúrate de configurar: BROKER_ID, BROKER_USER, BROKER_PASS, SUPABASE_URL, SUPABASE_KEY")
+        print("Asegúrate de configurar: BROKER_USER, BROKER_PASS, BROKER_ACCOUNT, SUPABASE_URL, SUPABASE_KEY")
         exit(1)
 
     ingestor = MarketDataIngestor(
-        broker_id=BROKER_ID,
-        broker_dni=BROKER_DNI,
         broker_user=BROKER_USER,
         broker_pass=BROKER_PASS,
+        broker_account=BROKER_ACCOUNT,
         supabase_url=SUPABASE_URL,
         supabase_key=SUPABASE_KEY
     )

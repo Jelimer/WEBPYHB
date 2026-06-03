@@ -22,3 +22,6 @@ Thumbs.db
 # Directorio de distribución/compilación del frontend (si usamos builders más adelante)
 frontend/dist/
 node_modules/
+
+# Scripts de prueba y archivos temporales
+scratch/
