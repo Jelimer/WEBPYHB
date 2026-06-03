@@ -58,6 +58,15 @@ function switchTab(tabId) {
     });
 }
 
+let loadMonitorTimeout = null;
+function triggerMonitorDataReload() {
+    if (loadMonitorTimeout) clearTimeout(loadMonitorTimeout);
+    loadMonitorTimeout = setTimeout(() => {
+        console.log("Recargando monitor de mercado en segundo plano para consistencia...");
+        loadMarketMonitorData();
+    }, 1000); // 1 segundo de debounce
+}
+
 // Cargar y consolidar los datos iniciales para el Monitor de Mercado de la Hoja Principal
 async function loadMarketMonitorData() {
     if (!supabaseClient) return;
@@ -65,7 +74,8 @@ async function loadMarketMonitorData() {
     const ids = Object.keys(tickerMap);
     if (ids.length === 0) return;
     
-    for (const id of ids) {
+    // Consulta en paralelo para todos los instrumentos para optimizar velocidad y reducir bloqueos
+    await Promise.all(ids.map(async (id) => {
         const inst = tickerMap[id];
         try {
             // Obtener el registro consolidado minuto a minuto más reciente
@@ -80,58 +90,46 @@ async function loadMarketMonitorData() {
             
             if (lastData && lastData.length > 0) {
                 const latest = lastData[0];
-                const todayBounds = getArgentinaDayBounds(); // Límites de la jornada de hoy en Argentina
-                
-                // Verificar si el registro más reciente pertenece a la jornada de hoy
-                const isToday = latest.timestamp >= todayBounds.start && latest.timestamp <= todayBounds.end;
+                // Determinamos los límites del día operativo de la última cotización registrada para este activo
+                const activeBounds = getArgentinaDayBounds(latest.timestamp);
                 
                 let closeVal = parseFloat(latest.close_price);
-                let volumeVal = 0;
+                let volumeVal = parseInt(latest.volume) || 0;
                 let variation = 0;
                 let openVal = closeVal;
                 
-                if (isToday) {
-                    volumeVal = parseInt(latest.volume) || 0;
+                // Buscamos el precio de cierre anterior a ese día operativo (anterior a activeBounds.start)
+                const { data: prevData } = await supabaseClient
+                    .from('market_data_1m')
+                    .select('close_price')
+                    .eq('instrument_id', id)
+                    .lt('timestamp', activeBounds.start)
+                    .order('timestamp', { ascending: false })
+                    .limit(1);
                     
-                    // Buscamos el precio de cierre del día anterior (anterior a las 00:00-03:00 de hoy)
-                    const { data: prevData } = await supabaseClient
+                let basePrice = null;
+                if (prevData && prevData.length > 0) {
+                    basePrice = parseFloat(prevData[0].close_price);
+                } else {
+                    // Fallback: Tomamos el primer open_price de ese día operativo
+                    const { data: firstData } = await supabaseClient
                         .from('market_data_1m')
-                        .select('close_price')
+                        .select('open_price')
                         .eq('instrument_id', id)
-                        .lt('timestamp', todayBounds.start)
-                        .order('timestamp', { ascending: false })
+                        .gte('timestamp', activeBounds.start)
+                        .lte('timestamp', activeBounds.end)
+                        .order('timestamp', { ascending: true })
                         .limit(1);
                         
-                    let basePrice = null;
-                    if (prevData && prevData.length > 0) {
-                        basePrice = parseFloat(prevData[0].close_price);
+                    if (firstData && firstData.length > 0) {
+                        basePrice = parseFloat(firstData[0].open_price);
                     } else {
-                        // Fallback: Si no hay días anteriores en la BD (activo nuevo), tomamos el primer open de hoy
-                        const { data: firstData } = await supabaseClient
-                            .from('market_data_1m')
-                            .select('open_price')
-                            .eq('instrument_id', id)
-                            .gte('timestamp', todayBounds.start)
-                            .lte('timestamp', todayBounds.end)
-                            .order('timestamp', { ascending: true })
-                            .limit(1);
-                            
-                        if (firstData && firstData.length > 0) {
-                            basePrice = parseFloat(firstData[0].open_price);
-                        } else {
-                            basePrice = parseFloat(latest.open_price) || closeVal;
-                        }
+                        basePrice = parseFloat(latest.open_price) || closeVal;
                     }
-                    
-                    openVal = basePrice;
-                    variation = basePrice !== 0 ? ((closeVal - basePrice) / basePrice) * 100 : 0;
-                } else {
-                    // Si no operó hoy en lo que va del día, el volumen diario y la variación de hoy son 0
-                    // pero mantenemos el último precio de cierre conocido para las tablas y red
-                    volumeVal = 0;
-                    variation = 0;
-                    openVal = closeVal;
                 }
+                
+                openVal = basePrice;
+                variation = basePrice !== 0 ? ((closeVal - basePrice) / basePrice) * 100 : 0;
                 
                 marketDataMap[id] = {
                     id: id,
@@ -156,7 +154,7 @@ async function loadMarketMonitorData() {
         } catch (e) {
             console.error(`Error al cargar datos del monitor para ID ${id}:`, e);
         }
-    }
+    }));
     
     renderMarketTables();
 }
@@ -827,8 +825,22 @@ function setupRealtimeSubscription() {
                     subNodePrice.textContent = formatPrice(newRow.close_price);
                 }
 
-                // 3. Recargar y consolidar todo el monitor de mercado de forma consistente (incluyendo variación contra el cierre anterior)
-                await loadMarketMonitorData();
+                // 3. Actualizar memoria local en tiempo real sin saturar con consultas HTTP redundantes
+                const item = marketDataMap[newRow.instrument_id];
+                if (item) {
+                    item.close_price = parseFloat(newRow.close_price);
+                    item.volume = parseInt(newRow.volume) || 0;
+                    
+                    // El basePrice guardado está en item.open_price (cierre anterior o primer apertura)
+                    const basePrice = item.open_price || item.close_price;
+                    item.variation = basePrice !== 0 ? ((item.close_price - basePrice) / basePrice) * 100 : 0;
+                    
+                    // Renderizar tablas inmediatamente para reactividad instantánea 0ms latencia
+                    renderMarketTables();
+                }
+
+                // Programar una recarga en segundo plano debouncada para consistencia
+                triggerMonitorDataReload();
 
                 // 4. Si es el ticker seleccionado actualmente, actualizamos la tabla, los paneles y el nodo central
                 if (currentTicker && newRow.instrument_id == currentTicker.id) {
@@ -902,7 +914,7 @@ function setupFallbackPolling() {
                 console.error("Error en polling histórico:", err);
             }
         }
-    }, 10000); // Sincroniza cada 10 segundos
+    }, 30000); // Sincroniza cada 30 segundos de forma pasiva
 }
 
 function updateDetailPanels(row) {
