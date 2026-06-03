@@ -82,16 +82,14 @@ async function loadMarketMonitorData() {
                 const latest = lastData[0];
                 
                 // Obtener el precio inicial de la misma jornada para determinar la apertura base de la rueda
-                const dateStr = latest.timestamp ? latest.timestamp.split('T')[0] : new Date().toISOString().split('T')[0];
-                const startOfDay = `${dateStr}T00:00:00Z`;
-                const endOfDay = `${dateStr}T23:59:59Z`;
+                const bounds = getArgentinaDayBounds(latest.timestamp);
                 
                 const { data: firstData, error: errFirst } = await supabaseClient
                     .from('market_data_1m')
                     .select('open_price')
                     .eq('instrument_id', id)
-                    .gte('timestamp', startOfDay)
-                    .lte('timestamp', endOfDay)
+                    .gte('timestamp', bounds.start)
+                    .lte('timestamp', bounds.end)
                     .order('timestamp', { ascending: true })
                     .limit(1);
                 
@@ -399,6 +397,28 @@ function parseTimestampToLocalString(timestampStr) {
         console.error("Error al formatear timestamp:", e);
         return timestampStr;
     }
+}
+
+// Obtener los límites de inicio y fin del día calendario argentino (UTC-3) en formato ISO UTC
+function getArgentinaDayBounds(timestampStr) {
+    const date = timestampStr ? new Date(timestampStr) : new Date();
+    
+    // Obtener la fecha local en formato YYYY-MM-DD para la zona de Argentina
+    const dateStr = new Intl.DateTimeFormat('fr-CA', {
+        timeZone: 'America/Argentina/Buenos_Aires',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+    }).format(date);
+    
+    // El inicio de día local es 00:00:00-03:00, y el fin de día local es 23:59:59-03:00
+    const localStart = new Date(`${dateStr}T00:00:00-03:00`);
+    const localEnd = new Date(`${dateStr}T23:59:59-03:00`);
+    
+    return {
+        start: localStart.toISOString(),
+        end: localEnd.toISOString()
+    };
 }
 
 // Cargar precios históricos de la base de datos para los nodos del tablero
