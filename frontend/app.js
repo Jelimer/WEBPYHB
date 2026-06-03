@@ -80,34 +80,65 @@ async function loadMarketMonitorData() {
             
             if (lastData && lastData.length > 0) {
                 const latest = lastData[0];
+                const todayBounds = getArgentinaDayBounds(); // Límites de la jornada de hoy en Argentina
                 
-                // Obtener el precio inicial de la misma jornada para determinar la apertura base de la rueda
-                const bounds = getArgentinaDayBounds(latest.timestamp);
+                // Verificar si el registro más reciente pertenece a la jornada de hoy
+                const isToday = latest.timestamp >= todayBounds.start && latest.timestamp <= todayBounds.end;
                 
-                const { data: firstData, error: errFirst } = await supabaseClient
-                    .from('market_data_1m')
-                    .select('open_price')
-                    .eq('instrument_id', id)
-                    .gte('timestamp', bounds.start)
-                    .lte('timestamp', bounds.end)
-                    .order('timestamp', { ascending: true })
-                    .limit(1);
+                let closeVal = parseFloat(latest.close_price);
+                let volumeVal = 0;
+                let variation = 0;
+                let openVal = closeVal;
                 
-                let openPrice = latest.open_price;
-                if (firstData && firstData.length > 0) {
-                    openPrice = firstData[0].open_price;
+                if (isToday) {
+                    volumeVal = parseInt(latest.volume) || 0;
+                    
+                    // Buscamos el precio de cierre del día anterior (anterior a las 00:00-03:00 de hoy)
+                    const { data: prevData } = await supabaseClient
+                        .from('market_data_1m')
+                        .select('close_price')
+                        .eq('instrument_id', id)
+                        .lt('timestamp', todayBounds.start)
+                        .order('timestamp', { ascending: false })
+                        .limit(1);
+                        
+                    let basePrice = null;
+                    if (prevData && prevData.length > 0) {
+                        basePrice = parseFloat(prevData[0].close_price);
+                    } else {
+                        // Fallback: Si no hay días anteriores en la BD (activo nuevo), tomamos el primer open de hoy
+                        const { data: firstData } = await supabaseClient
+                            .from('market_data_1m')
+                            .select('open_price')
+                            .eq('instrument_id', id)
+                            .gte('timestamp', todayBounds.start)
+                            .lte('timestamp', todayBounds.end)
+                            .order('timestamp', { ascending: true })
+                            .limit(1);
+                            
+                        if (firstData && firstData.length > 0) {
+                            basePrice = parseFloat(firstData[0].open_price);
+                        } else {
+                            basePrice = parseFloat(latest.open_price) || closeVal;
+                        }
+                    }
+                    
+                    openVal = basePrice;
+                    variation = basePrice !== 0 ? ((closeVal - basePrice) / basePrice) * 100 : 0;
+                } else {
+                    // Si no operó hoy en lo que va del día, el volumen diario y la variación de hoy son 0
+                    // pero mantenemos el último precio de cierre conocido para las tablas y red
+                    volumeVal = 0;
+                    variation = 0;
+                    openVal = closeVal;
                 }
-                
-                const closeVal = parseFloat(latest.close_price);
-                const openVal = parseFloat(openPrice) || closeVal;
-                const variation = openVal !== 0 ? ((closeVal - openVal) / openVal) * 100 : 0;
                 
                 marketDataMap[id] = {
                     id: id,
                     ticker: inst.ticker,
                     type: inst.type,
                     close_price: closeVal,
-                    volume: parseInt(latest.volume) || 0,
+                    volume: volumeVal,
                     open_price: openVal,
                     variation: variation
                 };
