@@ -2,6 +2,7 @@ import os
 import time
 import threading
 from datetime import datetime, timezone
+from http.server import HTTPServer, BaseHTTPRequestHandler
 import pandas as pd
 import pyRofex
 from dotenv import load_dotenv
@@ -362,6 +363,22 @@ class MarketDataIngestor:
             scheduler.shutdown()
             print("Servicio de ingesta detenido con éxito.")
 
+class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/plain')
+        self.end_headers()
+        self.wfile.write(b"OK")
+    def log_message(self, format, *args):
+        # Evitar inundar la consola de logs de peticiones HTTP
+        return
+
+def run_http_server():
+    port = int(os.getenv("PORT", 10000))
+    server = HTTPServer(('0.0.0.0', port), SimpleHTTPRequestHandler)
+    print(f"Servidor HTTP auxiliar de mantenimiento activo en puerto {port}...")
+    server.serve_forever()
+
 if __name__ == '__main__':
     load_dotenv()
 
@@ -376,6 +393,10 @@ if __name__ == '__main__':
         print("Error: Faltan variables de entorno requeridas en el archivo .env")
         print("Asegúrate de configurar: BROKER_USER, BROKER_PASS, BROKER_ACCOUNT, SUPABASE_URL, SUPABASE_KEY")
         exit(1)
+
+    # Iniciar servidor HTTP auxiliar para evitar suspensión en hostings gratuitos
+    http_thread = threading.Thread(target=run_http_server, daemon=True)
+    http_thread.start()
 
     ingestor = MarketDataIngestor(
         broker_user=BROKER_USER,
