@@ -102,3 +102,9 @@ python main.py
 * **Hilos de Ejecución Seguros**: La sincronización entre el WebSocket (`on_options_update`) y el planificador (`flush_to_database`) se realiza de forma atómica bajo exclusión mutua, garantizando consistencia.
 * **Resiliencia de Red**: Si la API de Supabase sufre una caída transitoria, el bloque `try-except` captura la excepción impidiendo que el proceso en tiempo real con el Broker se detenga.
 * **Caché en Espacio Local**: Se evita la sobrecarga del lookup de variables de instancia dentro del bucle de eventos (`hot path`) haciendo copias en variables locales para optimizar los ciclos de CPU en Python.
+
+---
+
+## 🔗 Referencia de Producto (Inspiración Futura)
+* **Terminal Quant Opciones**: [https://terminalquant-opciones.com/](https://terminalquant-opciones.com/)
+  * *Uso*: Esta plataforma se utilizará como benchmark e inspiración para incorporar en etapas futuras la visualización de matrices de opciones Call/Put organizadas, cálculo de Volatilidad Implícita (VI) y simulación gráfica de perfiles de ganancias/pérdidas (*payoff*) para estrategias financieras.
