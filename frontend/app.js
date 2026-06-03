@@ -442,13 +442,23 @@ function getArgentinaDayBounds(timestampStr) {
         day: '2-digit'
     }).format(date);
     
-    // El inicio de día local es 00:00:00-03:00, y el fin de día local es 23:59:59-03:00
-    const localStart = new Date(`${dateStr}T00:00:00-03:00`);
-    const localEnd = new Date(`${dateStr}T23:59:59-03:00`);
+    // Calcular el día de mañana en formato YYYY-MM-DD
+    const parts = dateStr.split('-');
+    const localDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+    const tomorrow = new Date(localDate.getTime() + 24 * 60 * 60 * 1000);
+    const tomorrowStr = new Intl.DateTimeFormat('fr-CA', {
+        timeZone: 'America/Argentina/Buenos_Aires',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+    }).format(tomorrow);
     
+    // En Argentina (UTC-3):
+    // El inicio de día (00:00:00-03:00) es 03:00:00Z UTC
+    // El fin de día (23:59:59-03:00) es 02:59:59Z UTC del día siguiente
     return {
-        start: localStart.toISOString(),
-        end: localEnd.toISOString()
+        start: `${dateStr}T03:00:00Z`,
+        end: `${tomorrowStr}T02:59:59Z`
     };
 }
 
@@ -801,7 +811,7 @@ function setupRealtimeSubscription() {
                 schema: 'public',
                 table: 'market_data_1m'
             },
-            (payload) => {
+            async (payload) => {
                 const newRow = payload.new;
                 
                 // 1. Actualizar el precio rápido en el panel lateral de tickers
@@ -817,37 +827,8 @@ function setupRealtimeSubscription() {
                     subNodePrice.textContent = formatPrice(newRow.close_price);
                 }
 
-                // 3. Actualizar en el mapa de datos del monitor de la Hoja Principal
-                if (marketDataMap[newRow.instrument_id]) {
-                    const item = marketDataMap[newRow.instrument_id];
-                    item.close_price = parseFloat(newRow.close_price);
-                    item.volume = parseInt(newRow.volume) || 0;
-                    
-                    if (!item.open_price && newRow.open_price) {
-                        item.open_price = parseFloat(newRow.open_price);
-                    }
-                    
-                    const openVal = parseFloat(item.open_price) || item.close_price;
-                    item.variation = openVal !== 0 ? ((item.close_price - openVal) / openVal) * 100 : 0;
-                    
-                    renderMarketTables();
-                } else {
-                    const inst = tickerMap[newRow.instrument_id];
-                    if (inst) {
-                        const closeVal = parseFloat(newRow.close_price);
-                        const openVal = parseFloat(newRow.open_price) || closeVal;
-                        marketDataMap[newRow.instrument_id] = {
-                            id: newRow.instrument_id,
-                            ticker: inst.ticker,
-                            type: inst.type,
-                            close_price: closeVal,
-                            volume: parseInt(newRow.volume) || 0,
-                            open_price: openVal,
-                            variation: openVal !== 0 ? ((closeVal - openVal) / openVal) * 100 : 0
-                        };
-                        renderMarketTables();
-                    }
-                }
+                // 3. Recargar y consolidar todo el monitor de mercado de forma consistente (incluyendo variación contra el cierre anterior)
+                await loadMarketMonitorData();
 
                 // 4. Si es el ticker seleccionado actualmente, actualizamos la tabla, los paneles y el nodo central
                 if (currentTicker && newRow.instrument_id == currentTicker.id) {
