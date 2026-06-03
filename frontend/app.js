@@ -19,6 +19,23 @@ let opcionesSearchQuery = "";
 let subyacentesVolFilter = 0;
 let opcionesVolFilter = 0;
 
+// Formateadores numéricos con estilo local de Argentina (separador de miles '.' y decimal ',')
+function formatPrice(val) {
+    if (val === null || val === undefined || isNaN(val) || val === "") return "-";
+    return `$${parseFloat(val).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function formatPriceRaw(val) {
+    if (val === null || val === undefined || isNaN(val) || val === "") return "-";
+    return parseFloat(val).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function formatPercent(val) {
+    if (val === null || val === undefined || isNaN(val) || val === "") return "-";
+    const parsed = parseFloat(val);
+    const sign = parsed > 0 ? "+" : "";
+    return `${sign}${parsed.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
+}
 
 // Conmutar entre la pestaña del Monitor de Mercado y la Red de Análisis Detallado
 function switchTab(tabId) {
@@ -178,8 +195,7 @@ function renderMarketTables() {
             
             const volStr = item.volume.toLocaleString('es-AR');
             const varColor = item.variation >= 0 ? 'var(--color-bid)' : 'var(--color-ask)';
-            const varSign = item.variation >= 0 ? '+' : '';
-            const varStr = `${varSign}${item.variation.toFixed(2)}%`;
+            const varStr = formatPercent(item.variation);
             
             // Barra de progreso horizontal en el fondo de la celda de volumen
             const pct = Math.min((item.volume / maxSubyacenteVolValue) * 100, 100);
@@ -208,8 +224,7 @@ function renderMarketTables() {
             
             const volStr = item.volume.toLocaleString('es-AR');
             const varColor = item.variation >= 0 ? 'var(--color-bid)' : 'var(--color-ask)';
-            const varSign = item.variation >= 0 ? '+' : '';
-            const varStr = `${varSign}${item.variation.toFixed(2)}%`;
+            const varStr = formatPercent(item.variation);
             
             // Barra de progreso horizontal en el fondo de la celda de volumen
             const pct = Math.min((item.volume / maxOpcionVolValue) * 100, 100);
@@ -250,15 +265,14 @@ function updateTickerTape() {
     // Duplicar contenido para bucle de marquee infinito sin cortes
     for (let loop = 0; loop < 2; loop++) {
         itemsList.forEach(item => {
-            const varSign = item.variation >= 0 ? '+' : '';
             const varColor = item.variation >= 0 ? 'var(--color-bid)' : 'var(--color-ask)';
             const varClass = item.variation >= 0 ? 'fa-caret-up' : 'fa-caret-down';
             tapeHtml += `
                 <div class="ticker-tape-item">
                     <span class="ticker-tape-ticker">${item.ticker}</span>
-                    <span class="ticker-tape-price">$${item.close_price.toFixed(2)}</span>
+                    <span class="ticker-tape-price">${formatPrice(item.close_price)}</span>
                     <span class="ticker-tape-var" style="color: ${varColor};">
-                        <i class="fa-solid ${varClass}" style="margin-right: 3px;"></i>${varSign}${item.variation.toFixed(2)}%
+                        <i class="fa-solid ${varClass}" style="margin-right: 3px;"></i>${formatPercent(item.variation)}
                     </span>
                 </div>
             `;
@@ -404,7 +418,7 @@ async function loadInitialPrices() {
             if (data && data.length > 0) {
                 const priceLabel = document.getElementById(`node-price-${subId}`);
                 if (priceLabel) {
-                    priceLabel.textContent = `$${parseFloat(data[0].close_price).toFixed(2)}`;
+                    priceLabel.textContent = formatPrice(data[0].close_price);
                 }
             }
         } catch (e) {
@@ -605,12 +619,12 @@ function createTableRow(row) {
 
     const dateStr = parseTimestampToLocalString(row.timestamp);
     
-    const close = parseFloat(row.close_price).toFixed(2);
+    const close = formatPriceRaw(row.close_price);
     const vol = parseInt(row.volume).toLocaleString('es-AR');
     
-    const bid = row.bid_price ? `$${parseFloat(row.bid_price).toFixed(2)}` : "-";
+    const bid = formatPrice(row.bid_price);
     const bidSize = row.bid_size ? parseInt(row.bid_size).toLocaleString('es-AR') : "-";
-    const ask = row.ask_price ? `$${parseFloat(row.ask_price).toFixed(2)}` : "-";
+    const ask = formatPrice(row.ask_price);
     const askSize = row.ask_size ? parseInt(row.ask_size).toLocaleString('es-AR') : "-";
     
     const ops = row.operations ? parseInt(row.operations).toLocaleString('es-AR') : "-";
@@ -742,14 +756,14 @@ function setupRealtimeSubscription() {
                 // 1. Actualizar el precio rápido en el panel lateral de tickers
                 const priceLabel = document.getElementById(`ticker-price-${newRow.instrument_id}`);
                 if (priceLabel) {
-                    priceLabel.textContent = `$${parseFloat(newRow.close_price).toFixed(2)}`;
+                    priceLabel.textContent = formatPrice(newRow.close_price);
                     priceLabel.style.color = parseFloat(newRow.close_price) >= parseFloat(newRow.open_price) ? 'var(--color-bid)' : 'var(--color-ask)';
                 }
 
                 // 2. Actualizar el precio en el nodo del tablero si corresponde
                 const subNodePrice = document.getElementById(`node-price-${newRow.instrument_id}`);
                 if (subNodePrice) {
-                    subNodePrice.textContent = `$${parseFloat(newRow.close_price).toFixed(2)}`;
+                    subNodePrice.textContent = formatPrice(newRow.close_price);
                 }
 
                 // 3. Actualizar en el mapa de datos del monitor de la Hoja Principal
@@ -809,7 +823,7 @@ function setupRealtimeSubscription() {
                     }
 
                     // Actualizar nodo central destacado
-                    document.getElementById("central-price").textContent = `$${parseFloat(newRow.close_price).toFixed(2)}`;
+                    document.getElementById("central-price").textContent = formatPrice(newRow.close_price);
 
                     // Actualizar paneles visuales
                     updateDetailPanels(newRow);
@@ -859,9 +873,8 @@ function setupFallbackPolling() {
     }, 10000); // Sincroniza cada 10 segundos
 }
 
-// Helper para actualizar paneles de precios e información
 function updateDetailPanels(row) {
-    const formattedPrice = `$${parseFloat(row.close_price).toFixed(2)}`;
+    const formattedPrice = formatPrice(row.close_price);
     
     // Header
     document.getElementById("header-last-price").textContent = formattedPrice;
@@ -883,8 +896,8 @@ function updateDetailPanels(row) {
     }
 
     // Orderbook / Bid & Ask
-    const bidVal = row.bid_price ? `$${parseFloat(row.bid_price).toFixed(2)}` : "-";
-    const askVal = row.ask_price ? `$${parseFloat(row.ask_price).toFixed(2)}` : "-";
+    const bidVal = formatPrice(row.bid_price);
+    const askVal = formatPrice(row.ask_price);
     
     document.getElementById("bid-price").textContent = bidVal;
     document.getElementById("ask-price").textContent = askVal;
@@ -893,16 +906,16 @@ function updateDetailPanels(row) {
     if (row.bid_price && row.ask_price) {
         const spread = parseFloat(row.ask_price) - parseFloat(row.bid_price);
         const spreadPct = (spread / parseFloat(row.bid_price)) * 100;
-        document.getElementById("spread-pct").textContent = `${spreadPct.toFixed(2)}%`;
+        document.getElementById("spread-pct").textContent = `${spreadPct.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
     } else {
         document.getElementById("spread-pct").textContent = "-%";
     }
 
     // Cuadrícula OHLC inferior
-    document.getElementById("ohlc-open").textContent = `$${parseFloat(row.open_price).toFixed(2)}`;
-    document.getElementById("ohlc-high").textContent = `$${parseFloat(row.high_price).toFixed(2)}`;
-    document.getElementById("ohlc-low").textContent = `$${parseFloat(row.low_price).toFixed(2)}`;
-    document.getElementById("ohlc-close").textContent = `$${parseFloat(row.close_price).toFixed(2)}`;
+    document.getElementById("ohlc-open").textContent = formatPrice(row.open_price);
+    document.getElementById("ohlc-high").textContent = formatPrice(row.high_price);
+    document.getElementById("ohlc-low").textContent = formatPrice(row.low_price);
+    document.getElementById("ohlc-close").textContent = formatPrice(row.close_price);
     
     // Métricas Avanzadas de pyRofex
     document.getElementById("rofex-bid-size").textContent = row.bid_size ? parseInt(row.bid_size).toLocaleString('es-AR') : "-";
